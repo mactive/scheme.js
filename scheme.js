@@ -1,3 +1,11 @@
+/**
+ * @fileOverview A Scheme interpreter in JavaScript
+ * @name scheme.js
+ * @author hiddenlotus <kaihaosw@gmail.com>
+ * @license MIT License
+ * @created 2015-12-04
+ **/
+
 // TODO make all this a module
 
 // TODO make it a module
@@ -40,11 +48,17 @@ function error(buf, msg) {
 
 
 var tokenize = (function () {
-  Array.prototype.contains = Array.prototype.contains || function(elem) {
-    return this.indexOf(elem) !== -1
+  var richifyArray = function(array) {
+    array.contains = function(elem) {
+      return array.indexOf(elem) !== -1
+    }
+    return array
   }
 
   var whiteSpaces = [" ", "\n", "t"]
+  var booleans = ["t", "f"]
+  richifyArray(whiteSpaces)
+  richifyArray(booleans)
 
   var tokenizeString = function(buf) {
     var res = ""
@@ -73,13 +87,17 @@ var tokenize = (function () {
 
   var tokenizeBoolean = function(buf) {
     var res = ""
-    var booleans = ["t", "f"]
     var current = buf.currentSymbol()
     if(!booleans.contains(current)) {
       return error(buf, "Tokenize Boolean Error")
     }
     res += current
     buf.read()
+    if(buf.eof()) {
+      return res
+    } else if(!whiteSpaces.contains(buf.currentSymbol())) {
+      return error(buf, "Tokenize Boolean Error")
+    }
     return res
   }
 
@@ -94,6 +112,19 @@ var tokenize = (function () {
     }
     buf.read()
     return res
+  }
+
+  var parensCorrect = function(tokenResult) {
+    var leftParensNum = 0
+    var rightParensNum = 0
+    for(var i = 0; i < tokenResult.length; i++) {
+      if(tokenResult[i] === "(") {
+        leftParensNum++
+      } else if(tokenResult[i] === ")") {
+        rightParensNum++
+      }
+    }
+    return leftParensNum === rightParensNum
   }
 
   var tokenize = function(buf) {
@@ -124,6 +155,9 @@ var tokenize = (function () {
       }
     }
 
+    if(!parensCorrect(res)) {
+      return error(buf, "Tokenize List Error")
+    }
     return res
   }
 
@@ -137,4 +171,105 @@ var tokenize = (function () {
   // var s = new StringBuffer('(define x (lambda (x) (* x x)))')
   // var s = new StringBuffer('(define x \'("abc" \'a #t #t 1 "abc"))')
   // var s = new StringBuffer('(define x \'("abc" \'a #t #t 1 "abc))')
+})()
+
+
+var parse = (function () {
+  function Listify(array) {
+    this.cur = 0
+    this.array = array
+  }
+
+  Listify.prototype.current = function() {
+    return this.array[this.cur]
+  }
+
+  Listify.prototype.next = function() {
+    this.array[++this.cur]
+  }
+
+  Listify.prototype.isEmpty = function() {
+    return this.array.length <= this.cur
+  }
+
+  Listify.prototype.listHelper = function() {
+    last = this.array.lastIndexOf(")")
+    return [new Listify(this.array.slice(1, last)), new Listify(this.array.slice(last + 1))]
+  }
+
+  Listify.prototype.relativeList = function() {
+    return this.listHelper()[0]
+  }
+
+  Listify.prototype.nextList = function() {
+    return this.listHelper()[1]
+  }
+
+  Listify.prototype.hasSubList = function() {
+    return this.array.slice(1, this.array.length-1).indexOf("(") !== -1
+  }
+
+  var typeInfo = function(type, value) {
+    return {
+      type: type,
+      value: value
+    }
+  }
+
+  var isNumber = function(n) {
+    return !isNaN(n - 1)
+  }
+
+  var parse = function(token, res) {
+    var current = token.current()
+    if(token.isEmpty()) {
+      return res
+    } else if(current === '"') {
+      token.next()
+      var res = res.concat(typeInfo("String", token.current()))
+      token.next()
+      token.next()
+      return parse(token, res)
+    } else if(isNumber(current)) {
+      var res = res.concat(typeInfo("Number", current))
+      token.next()
+      return parse(token, res)
+    } else if(current === "quote") {
+      token.next()
+      var res = res.concat(typeInfo("Quote", token.current()))
+      token.next()
+      return parse(token, res)
+    } else if(current === "#") {
+      token.next()
+      var res = res.concat(typeInfo("Boolean", token.current()))
+      token.next()
+      return parse(token, res)
+    } else if(current === "(") {
+      var subList = token.relativeList()
+      var temp = parse(subList, [])
+      res.push(temp)
+      return parse(token.nextList(), res)
+    } else {
+      var res = res.concat(typeInfo("Symbol", token.current()))
+      token.next()
+      return parse(token, res)
+    }
+  }
+
+  return function(token) {
+    return parse((new Listify(token)), [])
+  }
+
+  // var s1 = new StringBuffer('(define x 1)')
+  // var s2 = new StringBuffer('(define x (+ x 2))')
+  // var s3 = new StringBuffer('(define x (+ (+ 1 2) (+ 3 4)))')
+  // var s4 = new StringBuffer('((lambda x 4) 3)')
+  // var b1 = tokenize(s1)
+  // var b2 = tokenize(s2)
+  // var b3 = tokenize(s3)
+  // var b4 = tokenize(s4)
+
+  // var s = new StringBuffer('(define a (+ 1 2))')
+  // var b = tokenize(s)
+
 })()
