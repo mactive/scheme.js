@@ -55,7 +55,7 @@ var tokenize = (function () {
     return array
   }
 
-  var whiteSpaces = [" ", "\n", "t"]
+  var whiteSpaces = [" ", "\n", "\t"]
   var booleans = ["t", "f"]
   richifyArray(whiteSpaces)
   richifyArray(booleans)
@@ -73,6 +73,8 @@ var tokenize = (function () {
     return res
   }
 
+  // TODO bug
+  // '(a b c) not just whitespace
   var tokenizeQuote = function(buf) {
     var res = ""
     while(!whiteSpaces.contains(buf.currentSymbol())) {
@@ -162,15 +164,6 @@ var tokenize = (function () {
   }
 
   return tokenize
-
-  // var s = new StringBuffer('"a b cd   "')
-  // var s = new StringBuffer('\'abce  \'defabc "bcdef" "abc d" #t #f ')
-  // var s = new StringBuffer('#t #ff #t')
-  // var s = new StringBuffer('\'abcdef \'abce')
-  // var s = new StringBuffer('(define x (+ 1 2))')
-  // var s = new StringBuffer('(define x (lambda (x) (* x x)))')
-  // var s = new StringBuffer('(define x \'("abc" \'a #t #t 1 "abc"))')
-  // var s = new StringBuffer('(define x \'("abc" \'a #t #t 1 "abc))')
 })()
 
 
@@ -256,7 +249,7 @@ var parse = (function () {
       return parse(token, res)
     } else if(current === "#") {
       token.next()
-      var res = res.concat(typeInfo("Boolean", token.current()))
+      var res = res.concat(typeInfo("Boolean", "#" + token.current()))
       token.next()
       return parse(token, res)
     } else if(current === "(") {
@@ -271,19 +264,202 @@ var parse = (function () {
   }
 
   return function(token) {
-    return parse((new Listify(token)), [])
+    var res = parse((new Listify(token)), [])
+    if(res.length !== 1) {
+      // TODO error
+      return -1
+    }
+    return res[0]
+  }
+})()
+
+
+var Env = (function () {
+  function Env() {
+    this.env = {}
   }
 
-  // var s1 = new StringBuffer('(define x 1)')
-  // var s2 = new StringBuffer('(define x (+ x 2))')
-  // var s3 = new StringBuffer('(define x (+ (+ 1 2) (+ 3 4)))')
-  // var s4 = new StringBuffer('((lambda x 4) 3)')
-  // var b1 = tokenize(s1)
-  // var b2 = tokenize(s2)
-  // var b3 = tokenize(s3)
-  // var b4 = tokenize(s4)
+  Env.prototype.add = function(par, val) {
+    this.env[par] = val
+  }
 
-  // var s = new StringBuffer('(define x 1) 3 4 "abc" (define x 2)')
-  // var s = new StringBuffer('3 4 "abc" (define x 2)')
-  // var b = tokenize(s)
+  Env.prototype.extends = function(pars, vals) {
+    if(pars.length !== vals.length) {
+      // TODO error
+      return -1
+    }
+    var e = new Env()
+    for(var i = 0; i < pars.length; i++) {
+      e.add(pars[i], vals[i])
+    }
+    e.base = this
+    return e
+  }
+
+  Env.prototype.find = function(par) {
+    if(!this.env.hasOwnProperty(par)) {
+      // TODO error
+      return -1
+    }
+    return this.env[par] || this.base.find(par)
+  }
+
+  return Env
+})()
+
+
+var globalEnv = new Env()
+globalEnv.add("a", 1)
+
+
+var eval = (function () {
+  var isSelfEvaluated = function(exp) {
+    var t = exp.type
+    return (t === "Number") || (t === "String") || (t === "Boolean")
+  }
+
+  var isQuoted = function(exp) {
+    return exp.type === "Quote"
+  }
+
+  var sGeneral = function(exp, key, varType, length) {
+    return exp[0].type === "Symbol" && exp[0].value === key
+      && exp[1].type === varType && exp.length === length
+  }
+
+  var isAssignment = function(exp) {
+    return sGeneral(exp, "set!", "Symbol", 3)
+  }
+
+  var assignmentVar = function(exp) {
+    return exp[1].value
+  }
+
+  var assignmentVal = function(exp) {
+    return exp[2]
+  }
+
+  var isDefinition = function(exp) {
+    return sGeneral(exp, "define", "Symbol", 3)
+  }
+
+  var definitionVar = function(exp) {
+    return exp[1].value
+  }
+
+  var definitionVal = function(exp) {
+    return exp[2]
+  }
+
+  var isIf = function(exp) {
+    return sGeneral(exp, "if", "Boolean", 4)
+  }
+
+  var ifCondition = function(exp) {
+    return exp[1]
+  }
+
+  var ifThen = function(exp) {
+    return exp[2]
+  }
+
+  var ifElse = function(exp) {
+    return exp[3]
+  }
+
+  var isLambda = function(exp) {
+    return exp.length === 3 && exp[0].value === "lambda"
+      && Array.isArray(exp[1]) && Array.isArray(exp[2])
+      && exp[1].every(function(elem) { return elem.type === "Symbol" })
+  }
+
+  var lambdaVars = function(exp) {
+    return exp[1].map(function(elem) { return elem.value })
+  }
+
+  var lambdaBody = function(exp) {
+    // TODO
+    return exp[2]
+  }
+
+  var makeLambda = function(vars, body) {
+    return {
+      type: "Primitive",
+      parameters: vars,
+      body: body
+    }
+  }
+
+  var isBegin = function(exp) {
+    return exp[0].value === "begin" && exp.length >= 2
+  }
+
+  var beginBody = function(exp) {
+    return exp.slice(1)
+  }
+
+  // selfEvaluated
+  // variable
+  // quote
+  // assignment
+  // definition
+  // if
+  // lambda
+  // begin
+  // cond
+  // application
+  // error
+  function eval(exp, env) {
+    if(isSelfEvaluated(exp)) {
+      return exp.value
+    } else if(exp.type === "Symbol") {
+      return env.find(exp.value)
+    } else if(isQuoted(exp)) {
+      return exp.value
+    } else if(isAssignment(exp)) {
+      env.add(assignmentVar(exp), eval(assignmentVal(exp), env))
+    } else if(isDefinition(exp)) {
+      env.add(definitionVar(exp), eval(definitionVal(exp), env))
+    } else if(isIf(exp)) {
+      var c = eval(ifCondition(exp), env)
+      if(c === "#t") {
+        return eval(ifThen(exp), env)
+      } else {
+        return eval(ifElse(exp), env)
+      }
+    } else if(isLambda(exp)) {
+      return makeLambda(lambdaVars(exp), lambdaBody(exp))
+    } else if(isBegin(exp)) {
+      var body = beginBody(exp)
+      var last = body.pop()
+      body.map(function(x) { eval(x, env) })
+      return eval(last, env)
+    }
+    else {
+      // TODO error
+      return -10000
+    }
+  }
+
+  return function(exp) {
+    return eval(exp, globalEnv)
+  }
+
+  // eval(parse(tokenize(new StringBuffer('-4'))))
+  // eval(parse(tokenize(new StringBuffer('"abc  def"'))))
+  // eval(parse(tokenize(new StringBuffer('#f'))))
+  // eval(parse(tokenize(new StringBuffer('\'abc'))))
+
+  // // TODO BUG
+  // var s = new StringBuffer("'(1 2 3)")
+
+  // eval(parse(tokenize(new StringBuffer('a'))))
+  // eval(parse(tokenize(new StringBuffer('(set! x 10)'))))
+
+  // eval(parse(tokenize(new StringBuffer('(define x 1)'))))
+  // // parse(tokenize(new StringBuffer('(define x (lambda (x) (* x x)))')))
+  // eval(parse(tokenize(new StringBuffer('(if #f 1 2)'))))
+
+  // // eval(parse(tokenize(new StringBuffer('(lambda (x) (* x x))'))))
+  // eval(parse(tokenize(new StringBuffer('(begin (set! y 1) 1 2 "abc" y)'))))
 })()
