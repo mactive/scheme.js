@@ -192,21 +192,36 @@ var parse = (function () {
     return this.array.length <= this.cur
   }
 
-  Listify.prototype.listHelper = function() {
-    last = this.array.lastIndexOf(")")
-    return [new Listify(this.array.slice(1, last)), new Listify(this.array.slice(last + 1))]
+  Listify.prototype.helper = function() {
+    var stack = 0
+    var arr = this.array.slice(this.cur)
+    var t = new Listify(arr)
+    while(!t.isEmpty()) {
+      if(t.current() === "(") {
+        stack++
+        t.next()
+      } else if(t.current() === ")") {
+        stack--
+        t.next()
+      } else {
+        t.next()
+      }
+      if(stack === 0) {
+        t.cur--
+        break
+      }
+    }
+    var p1 = arr.slice(1, t.cur)
+    var p2 = arr.slice(t.cur + 1, arr.length)
+    return [p1, p2]
   }
 
   Listify.prototype.relativeList = function() {
-    return this.listHelper()[0]
+    return new Listify(this.helper()[0])
   }
 
-  Listify.prototype.nextList = function() {
-    return this.listHelper()[1]
-  }
-
-  Listify.prototype.hasSubList = function() {
-    return this.array.slice(1, this.array.length-1).indexOf("(") !== -1
+  Listify.prototype.nextRelative = function() {
+    return new Listify(this.helper()[1])
   }
 
   var typeInfo = function(type, value) {
@@ -247,8 +262,7 @@ var parse = (function () {
     } else if(current === "(") {
       var subList = token.relativeList()
       var temp = parse(subList, [])
-      res.push(temp)
-      return parse(token.nextList(), res)
+      return parse(token.nextRelative(), res.concat([temp]))
     } else {
       var res = res.concat(typeInfo("Symbol", token.current()))
       token.next()
@@ -269,7 +283,7 @@ var parse = (function () {
   // var b3 = tokenize(s3)
   // var b4 = tokenize(s4)
 
-  // var s = new StringBuffer('(define a (+ 1 2))')
+  // var s = new StringBuffer('(define x 1) 3 4 "abc" (define x 2)')
+  // var s = new StringBuffer('3 4 "abc" (define x 2)')
   // var b = tokenize(s)
-
 })()
