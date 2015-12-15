@@ -297,11 +297,14 @@ var Env = (function () {
   }
 
   Env.prototype.find = function(par) {
-    if(!this.env.hasOwnProperty(par)) {
+    if(this.env.hasOwnProperty(par)) {
+      return this.env[par]
+    } else if(this.hasOwnProperty("base")) {
+      return this.base.find(par)
+    } else {
       // TODO error
       return -1
     }
-    return this.env[par] || this.base.find(par)
   }
 
   return Env
@@ -309,7 +312,7 @@ var Env = (function () {
 
 
 var globalEnv = new Env()
-globalEnv.add("a", 1)
+globalEnv.add("*", function(x, y) { return x * y })
 
 
 var eval = (function () {
@@ -324,7 +327,8 @@ var eval = (function () {
 
   var sGeneral = function(exp, key, varType, length) {
     return exp[0].type === "Symbol" && exp[0].value === key
-      && exp[1].type === varType && exp.length === length
+      && (exp[1].type === varType || exp[1][0].type === varType)
+      && exp.length === length
   }
 
   var isAssignment = function(exp) {
@@ -343,11 +347,26 @@ var eval = (function () {
     return sGeneral(exp, "define", "Symbol", 3)
   }
 
+  var isNormalDefine = function(exp) {
+    return Array.isArray(exp[1])
+  }
+
   var definitionVar = function(exp) {
-    return exp[1].value
+    var t = exp[1]
+    if(isNormalDefine(exp)) {
+      return t[0].value
+    }
+    return t.value
   }
 
   var definitionVal = function(exp) {
+    var t = exp[1]
+    if(isNormalDefine(exp)) {
+      var params = [t.slice(1)]
+      params.unshift({type: "Symbol", value: "lambda"})
+      params.push(exp[2])
+      return params
+    }
     return exp[2]
   }
 
@@ -398,6 +417,18 @@ var eval = (function () {
     return exp.slice(1)
   }
 
+  var isApplication = function(exp) {
+    return exp.length >= 2
+  }
+
+  var applicationApp = function(exp) {
+    return exp[0]
+  }
+
+  var applicationVals = function(exp) {
+    return exp.slice(1)
+  }
+
   // selfEvaluated
   // variable
   // quote
@@ -434,11 +465,26 @@ var eval = (function () {
       var last = body.pop()
       body.map(function(x) { eval(x, env) })
       return eval(last, env)
+    } else if(isApplication(exp)) {
+      return apply(eval(applicationApp(exp), env),
+                   applicationVals(exp).map(function(exp) { return eval(exp, env) }),
+                   env)
     }
     else {
       // TODO error
       return -10000
     }
+  }
+
+  function apply(f, vals, env) {
+    var pars = f.parameters
+    if(pars.length !== vals.length) {
+      // TODO error
+      return -11111
+    }
+    var newEnv = env.extends(pars, vals)
+    var body = f.body.map(function(exp) { return exp.value })
+    return newEnv.find(body[0]).apply(undefined, body.slice(1).map(function(exp) { return newEnv.find(exp) }))
   }
 
   return function(exp) {
@@ -453,13 +499,19 @@ var eval = (function () {
   // // TODO BUG
   // var s = new StringBuffer("'(1 2 3)")
 
-  // eval(parse(tokenize(new StringBuffer('a'))))
   // eval(parse(tokenize(new StringBuffer('(set! x 10)'))))
+  // eval(parse(tokenize(new StringBuffer('x'))))
 
   // eval(parse(tokenize(new StringBuffer('(define x 1)'))))
+  // eval(parse(tokenize(new StringBuffer('(define square (lambda (x) (* x x)))'))))
+  // eval(parse(tokenize(new StringBuffer('(define (square2 x) (* x x))'))))
   // // parse(tokenize(new StringBuffer('(define x (lambda (x) (* x x)))')))
-  // eval(parse(tokenize(new StringBuffer('(if #f 1 2)'))))
+  // /// eval(parse(tokenize(new StringBuffer('(if #f 1 2)'))))
 
-  // // eval(parse(tokenize(new StringBuffer('(lambda (x) (* x x))'))))
-  // eval(parse(tokenize(new StringBuffer('(begin (set! y 1) 1 2 "abc" y)'))))
+  // // parse(tokenize(new StringBuffer('(lambda (x) (* x x))')))
+  // // eval(parse(tokenize(new StringBuffer('(begin (set! y 1) 1 2 "abc" y)'))))
+
+  // var a = parse(tokenize(new StringBuffer('((lambda (x) (* x x)) 4)')))
+  // var b = parse(tokenize(new StringBuffer('(square 4)')))
+  // var c = parse(tokenize(new StringBuffer('(square2 4)')))
 })()
