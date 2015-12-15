@@ -9,31 +9,37 @@
 // TODO make all this a module
 
 // TODO make it a module
-function StringBuffer(str) {
-  this.str = str
-  this.position = 0
-}
-
-StringBuffer.prototype.read = function() {
-  this.position++
-}
-
-StringBuffer.prototype.currentSymbol = function() {
-  return this.str.charAt(this.position)
-}
-
-StringBuffer.prototype.skipWS = function() {
-  var s = this.currentSymbol()
-  // TODO whiteSpaces    make it in global module
-  if(s === " " || s === "\n" || s === "\t") {
-    this.read()
-    return this.skipWS()
+var StringBuffer = (function () {
+  function StringBuffer(str) {
+    this.str = str
+    this.position = 0
   }
-}
 
-StringBuffer.prototype.eof = function() {
-  return this.position >= this.str.length
-}
+  StringBuffer.prototype.read = function() {
+    this.position++
+  }
+
+  StringBuffer.prototype.currentSymbol = function() {
+    return this.str.charAt(this.position)
+  }
+
+  StringBuffer.prototype.skipWS = function() {
+    var s = this.currentSymbol()
+    // TODO whiteSpaces    make it in global module
+    if(s === " " || s === "\n" || s === "\t") {
+      this.read()
+      return this.skipWS()
+    }
+  }
+
+  StringBuffer.prototype.eof = function() {
+    return this.position >= this.str.length
+  }
+
+  return function(buf) {
+    return new StringBuffer(buf)
+  }
+})()
 
 
 // TODO check error
@@ -311,8 +317,46 @@ var Env = (function () {
 })()
 
 
-var globalEnv = new Env()
-globalEnv.add("*", function(x, y) { return x * y })
+var globalEnv = (function () {
+  var globalEnv = new Env()
+
+  function add() {
+    return [].reduce.call(arguments, function(a, b) {
+      return (+a) + (+b)
+    })
+  }
+
+  function sub() {
+    return [].reduce.call(arguments, function(a, b) {
+      return a - b
+    })
+  }
+
+  function mul() {
+    return [].reduce.call(arguments, function(a, b) {
+      return a * b
+    })
+  }
+
+  function div() {
+    return [].reduce.call(arguments, function(a, b) {
+      return a / b
+    })
+  }
+
+
+  globalEnv.add("+", add)
+  globalEnv.add("-", sub)
+  globalEnv.add("*", mul)
+  globalEnv.add("/", div)
+  globalEnv.add("<", function(a, b) { return a < b })
+  globalEnv.add("<=", function(a, b) { return a <= b })
+  globalEnv.add(">", function(a, b) { return a > b })
+  globalEnv.add(">=", function(a, b) { return a >= b })
+  globalEnv.add("=", function(a, b) { return a === b })
+
+  return globalEnv
+})()
 
 
 var eval = (function () {
@@ -429,17 +473,7 @@ var eval = (function () {
     return exp.slice(1)
   }
 
-  // selfEvaluated
-  // variable
-  // quote
-  // assignment
-  // definition
-  // if
-  // lambda
-  // begin
-  // cond
-  // application
-  // error
+  // TODO cond let
   function eval(exp, env) {
     if(isSelfEvaluated(exp)) {
       return exp.value
@@ -469,49 +503,58 @@ var eval = (function () {
       return apply(eval(applicationApp(exp), env),
                    applicationVals(exp).map(function(exp) { return eval(exp, env) }),
                    env)
-    }
-    else {
+    } else {
       // TODO error
       return -10000
     }
   }
 
   function apply(f, vals, env) {
-    var pars = f.parameters
-    if(pars.length !== vals.length) {
-      // TODO error
-      return -11111
+    if(f.type === "Primitive") {
+      var pars = f.parameters
+      if(pars.length !== vals.length) {
+        // TODO error
+        return -11111
+      }
+      var newEnv = env.extends(pars, vals)
+      var body = f.body.map(function(exp) { return exp.value })
+      return newEnv.find(body[0]).apply(undefined, body.slice(1).map(function(exp) {
+        return newEnv.find(exp)
+      }))
+    } else {
+      return f.apply(undefined, vals)
     }
-    var newEnv = env.extends(pars, vals)
-    var body = f.body.map(function(exp) { return exp.value })
-    return newEnv.find(body[0]).apply(undefined, body.slice(1).map(function(exp) { return newEnv.find(exp) }))
   }
 
   return function(exp) {
     return eval(exp, globalEnv)
   }
 
-  // eval(parse(tokenize(new StringBuffer('-4'))))
-  // eval(parse(tokenize(new StringBuffer('"abc  def"'))))
-  // eval(parse(tokenize(new StringBuffer('#f'))))
-  // eval(parse(tokenize(new StringBuffer('\'abc'))))
+  // eval(parse(tokenize(StringBuffer('-4'))))
+  // eval(parse(tokenize(StringBuffer('"abc  def"'))))
+  // eval(parse(tokenize(StringBuffer('#f'))))
+  // eval(parse(tokenize(StringBuffer('\'abc'))))
 
   // // TODO BUG
-  // var s = new StringBuffer("'(1 2 3)")
+  // // var s = new StringBuffer("'(1 2 3)")
 
-  // eval(parse(tokenize(new StringBuffer('(set! x 10)'))))
-  // eval(parse(tokenize(new StringBuffer('x'))))
+  // eval(parse(tokenize(StringBuffer('(set! x 10)'))))
+  // eval(parse(tokenize(StringBuffer('x'))))
 
-  // eval(parse(tokenize(new StringBuffer('(define x 1)'))))
-  // eval(parse(tokenize(new StringBuffer('(define square (lambda (x) (* x x)))'))))
-  // eval(parse(tokenize(new StringBuffer('(define (square2 x) (* x x))'))))
-  // // parse(tokenize(new StringBuffer('(define x (lambda (x) (* x x)))')))
-  // /// eval(parse(tokenize(new StringBuffer('(if #f 1 2)'))))
+  // eval(parse(tokenize(StringBuffer('(define x 1)'))))
+  // eval(parse(tokenize(StringBuffer('(define square (lambda (x) (* x x)))'))))
+  // eval(parse(tokenize(StringBuffer('(define (square2 x) (* x x))'))))
+  // // parse(tokenize(StringBuffer('(define x (lambda (x) (* x x)))')))
+  // /// eval(parse(tokenize(StringBuffer('(if #f 1 2)'))))
 
-  // // parse(tokenize(new StringBuffer('(lambda (x) (* x x))')))
-  // // eval(parse(tokenize(new StringBuffer('(begin (set! y 1) 1 2 "abc" y)'))))
+  // // parse(tokenize(StringBuffer('(lambda (x) (* x x))')))
+  // // eval(parse(tokenize(StringBuffer('(begin (set! y 1) 1 2 "abc" y)'))))
 
-  // var a = parse(tokenize(new StringBuffer('((lambda (x) (* x x)) 4)')))
-  // var b = parse(tokenize(new StringBuffer('(square 4)')))
-  // var c = parse(tokenize(new StringBuffer('(square2 4)')))
+  // var a = parse(tokenize(StringBuffer('((lambda (x) (* x x)) 4)')))
+  // var b = parse(tokenize(StringBuffer('(square 4)')))
+  // var c = parse(tokenize(StringBuffer('(square2 4)')))
+  // var d = parse(tokenize(StringBuffer('(* 10 4)')))
+  // var e = parse(tokenize(StringBuffer('(+ 10 2 2)')))
+  // var e = parse(tokenize(StringBuffer('(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))')))
+  // var g = parse(tokenize(StringBuffer('(fib 2)')))
 })()
