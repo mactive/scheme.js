@@ -320,6 +320,13 @@ var Env = (function () {
 var globalEnv = (function () {
   var globalEnv = new Env()
 
+  function makePrimitive(f) {
+    return {
+      type: "Primitive",
+      value: f
+    }
+  }
+
   function add() {
     return [].reduce.call(arguments, function(a, b) {
       return (+a) + (+b)
@@ -345,15 +352,21 @@ var globalEnv = (function () {
   }
 
 
-  globalEnv.add("+", add)
-  globalEnv.add("-", sub)
-  globalEnv.add("*", mul)
-  globalEnv.add("/", div)
-  globalEnv.add("<", function(a, b) { return a < b })
-  globalEnv.add("<=", function(a, b) { return a <= b })
-  globalEnv.add(">", function(a, b) { return a > b })
-  globalEnv.add(">=", function(a, b) { return a >= b })
-  globalEnv.add("=", function(a, b) { return a === b })
+  globalEnv.add("+", makePrimitive(add))
+  globalEnv.add("-", makePrimitive(sub))
+  globalEnv.add("*", makePrimitive(mul))
+  globalEnv.add("/", makePrimitive(div))
+  globalEnv.add("<", makePrimitive(function(a, b) { return a < b }))
+  globalEnv.add("<=", makePrimitive(function(a, b) { return a <= b }))
+  globalEnv.add(">", makePrimitive(function(a, b) { return a > b }))
+  globalEnv.add(">=", makePrimitive(function(a, b) { return a >= b }))
+  globalEnv.add("=", makePrimitive(function(a, b) { return a === b }))
+  // #t
+  // #f
+  // car
+  // cdr
+  // cons
+  // null?
 
   return globalEnv
 })()
@@ -369,14 +382,13 @@ var eval = (function () {
     return exp.type === "Quote"
   }
 
-  var sGeneral = function(exp, key, varType, length) {
+  var sGeneral = function(exp, key, length) {
     return exp[0].type === "Symbol" && exp[0].value === key
-      && (exp[1].type === varType || exp[1][0].type === varType)
       && exp.length === length
   }
 
   var isAssignment = function(exp) {
-    return sGeneral(exp, "set!", "Symbol", 3)
+    return sGeneral(exp, "set!", 3)
   }
 
   var assignmentVar = function(exp) {
@@ -387,8 +399,12 @@ var eval = (function () {
     return exp[2]
   }
 
+  var evalAssignment = function(exp, env) {
+    return env.add(assignmentVar(exp), eval(assignmentVal(exp), env))
+  }
+
   var isDefinition = function(exp) {
-    return sGeneral(exp, "define", "Symbol", 3)
+    return sGeneral(exp, "define", 3)
   }
 
   var isNormalDefine = function(exp) {
@@ -414,12 +430,21 @@ var eval = (function () {
     return exp[2]
   }
 
+  var evalDefinition = function(exp, env) {
+    return env.add(definitionVar(exp), eval(definitionVal(exp), env))
+  }
+
   var isIf = function(exp) {
-    return sGeneral(exp, "if", "Boolean", 4)
+    return sGeneral(exp, "if", 4)
   }
 
   var ifCondition = function(exp) {
     return exp[1]
+  }
+
+  var ifTrue = function(exp) {
+    // TODO fix this
+    return exp === true || exp === "#t"
   }
 
   var ifThen = function(exp) {
@@ -428,6 +453,14 @@ var eval = (function () {
 
   var ifElse = function(exp) {
     return exp[3]
+  }
+
+  var evalIf = function(exp, env) {
+    if(ifTrue(eval(ifCondition(exp), env))) {
+      return eval(ifThen(exp), env)
+    } else {
+      return eval(ifElse(exp), env)
+    }
   }
 
   var isLambda = function(exp) {
@@ -445,12 +478,29 @@ var eval = (function () {
     return exp[2]
   }
 
-  var makeLambda = function(vars, body) {
+  var makeProcedure = function(pars, body, env) {
     return {
-      type: "Primitive",
-      parameters: vars,
-      body: body
+      type: "Procedure",
+      parameters: pars,
+      body: body,
+      env: env
     }
+  }
+
+  var isCompoundProcedure = function(exp) {
+    return exp.type === "Procedure"
+  }
+
+  var compoundProcedurePars = function(exp) {
+    return exp.parameters
+  }
+
+  var compoundProcedureBody = function(exp) {
+    return exp.body
+  }
+
+  var compoundProcedureEnv = function(exp) {
+    return exp.env
   }
 
   var isBegin = function(exp) {
@@ -459,6 +509,14 @@ var eval = (function () {
 
   var beginBody = function(exp) {
     return exp.slice(1)
+  }
+
+  var evalSequence = function(body, env) {
+    console.log(env);
+    // TODO bug seems from env class
+    var last = body.pop()
+    body.map(function(x) { eval(x, env) })
+    return eval(last, env)
   }
 
   var isApplication = function(exp) {
@@ -473,6 +531,18 @@ var eval = (function () {
     return exp.slice(1)
   }
 
+  var isPrimitive = function(exp) {
+    return exp.type === "Primitive"
+  }
+
+  var primitiveValue = function(exp) {
+    return exp.value
+  }
+
+  var listOfValues = function(exps, env) {
+    return exps.map(function(exp) { return eval(exp, env) })
+  }
+
   // TODO cond let
   function eval(exp, env) {
     if(isSelfEvaluated(exp)) {
@@ -482,79 +552,76 @@ var eval = (function () {
     } else if(isQuoted(exp)) {
       return exp.value
     } else if(isAssignment(exp)) {
-      env.add(assignmentVar(exp), eval(assignmentVal(exp), env))
+      return evalAssignment(exp, env)
     } else if(isDefinition(exp)) {
-      env.add(definitionVar(exp), eval(definitionVal(exp), env))
+      return evalDefinition(exp, env)
     } else if(isIf(exp)) {
-      var c = eval(ifCondition(exp), env)
-      if(c === "#t") {
-        return eval(ifThen(exp), env)
-      } else {
-        return eval(ifElse(exp), env)
-      }
+      return evalIf(exp, env)
     } else if(isLambda(exp)) {
-      return makeLambda(lambdaVars(exp), lambdaBody(exp))
+      return makeProcedure(lambdaVars(exp), lambdaBody(exp), env)
     } else if(isBegin(exp)) {
-      var body = beginBody(exp)
-      var last = body.pop()
-      body.map(function(x) { eval(x, env) })
-      return eval(last, env)
+      return evalSequence(beginBody(exp), env)
     } else if(isApplication(exp)) {
       return apply(eval(applicationApp(exp), env),
-                   applicationVals(exp).map(function(exp) { return eval(exp, env) }),
-                   env)
+                   listOfValues(applicationVals(exp), env))
     } else {
       // TODO error
       return -10000
     }
   }
 
-  function apply(f, vals, env) {
-    if(f.type === "Primitive") {
-      var pars = f.parameters
+  function apply(procedure, vals) {
+    if(isPrimitive(procedure)) {
+      return primitiveValue(procedure).apply(undefined, vals)
+    } else if(isCompoundProcedure(procedure)) {
+      var pars = compoundProcedurePars(procedure)
       if(pars.length !== vals.length) {
-        // TODO error
-        return -11111
+        return -11111111111
       }
-      var newEnv = env.extends(pars, vals)
-      var body = f.body.map(function(exp) { return exp.value })
-      return newEnv.find(body[0]).apply(undefined, body.slice(1).map(function(exp) {
-        return newEnv.find(exp)
-      }))
+      var body = compoundProcedureBody(procedure)
+      var newEnv = compoundProcedureEnv(procedure).extends(pars, vals)
+      return evalSequence(body, newEnv)
     } else {
-      return f.apply(undefined, vals)
+      return -11111
     }
   }
 
   return function(exp) {
     return eval(exp, globalEnv)
   }
-
-  // eval(parse(tokenize(StringBuffer('-4'))))
-  // eval(parse(tokenize(StringBuffer('"abc  def"'))))
-  // eval(parse(tokenize(StringBuffer('#f'))))
-  // eval(parse(tokenize(StringBuffer('\'abc'))))
-
-  // // TODO BUG
-  // // var s = new StringBuffer("'(1 2 3)")
-
-  // eval(parse(tokenize(StringBuffer('(set! x 10)'))))
-  // eval(parse(tokenize(StringBuffer('x'))))
-
-  // eval(parse(tokenize(StringBuffer('(define x 1)'))))
-  // eval(parse(tokenize(StringBuffer('(define square (lambda (x) (* x x)))'))))
-  // eval(parse(tokenize(StringBuffer('(define (square2 x) (* x x))'))))
-  // // parse(tokenize(StringBuffer('(define x (lambda (x) (* x x)))')))
-  // /// eval(parse(tokenize(StringBuffer('(if #f 1 2)'))))
-
-  // // parse(tokenize(StringBuffer('(lambda (x) (* x x))')))
-  // // eval(parse(tokenize(StringBuffer('(begin (set! y 1) 1 2 "abc" y)'))))
-
-  // var a = parse(tokenize(StringBuffer('((lambda (x) (* x x)) 4)')))
-  // var b = parse(tokenize(StringBuffer('(square 4)')))
-  // var c = parse(tokenize(StringBuffer('(square2 4)')))
-  // var d = parse(tokenize(StringBuffer('(* 10 4)')))
-  // var e = parse(tokenize(StringBuffer('(+ 10 2 2)')))
-  // var e = parse(tokenize(StringBuffer('(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))')))
-  // var g = parse(tokenize(StringBuffer('(fib 2)')))
 })()
+
+
+// eval(parse(tokenize(StringBuffer('-4'))))
+// eval(parse(tokenize(StringBuffer('"abc  def"'))))
+// eval(parse(tokenize(StringBuffer('#f'))))
+// eval(parse(tokenize(StringBuffer('\'abc'))))
+
+// TODO BUG
+// var s = new StringBuffer("'(1 2 3)")
+
+// eval(parse(tokenize(StringBuffer('(set! x 10)'))))
+// eval(parse(tokenize(StringBuffer('x'))))
+
+// eval(parse(tokenize(StringBuffer('(define x 1)'))))
+// eval(parse(tokenize(StringBuffer('(define square (lambda (x) (* x x)))'))))
+// eval(parse(tokenize(StringBuffer('(define (square2 x) (* x x))'))))
+// eval(parse(tokenize(StringBuffer('(define x (lambda (x) (* x x)))'))))
+// var a = parse(tokenize(StringBuffer('(if #t 1 2)')))
+// var b = parse(tokenize(StringBuffer('(if (<= 1 2) (+ 1 2) (* 1 2))')))
+
+// parse(tokenize(StringBuffer('(lambda (x) (* x x))')))
+// eval(parse(tokenize(StringBuffer('(begin (set! y 1) 1 2 (+ 1 2 3) "abc" (* 1 2))'))))
+
+// var a = parse(tokenize(StringBuffer('((lambda (x) (* x x)) 4)')))
+// var b = eval(parse(tokenize(StringBuffer('(square 4)'))))
+// var c = parse(tokenize(StringBuffer('(square2 4)')))
+// var d = parse(tokenize(StringBuffer('(* 10 4)')))
+// var e = parse(tokenize(StringBuffer('(+ 10 2 2)')))
+// var e = parse(tokenize(StringBuffer('(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))')))
+// eval(e)
+// var g = parse(tokenize(StringBuffer('(fib 4)')))
+
+// var a = parse(tokenize(StringBuffer('(define (test n) (if (= n 1) n (test (- n 1))))')))
+// var b = parse(tokenize(StringBuffer('(test 1)')))
+// var c = parse(tokenize(StringBuffer('(define test2 (lambda (n) (if (= n 1) 1 (test2 (- n 1))))')))
