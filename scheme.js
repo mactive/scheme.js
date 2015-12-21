@@ -327,9 +327,10 @@ var globalEnv = (function () {
     }
   }
 
+  // TODO string to number
   function add() {
     return [].reduce.call(arguments, function(a, b) {
-      return (+a) + (+b)
+      return a + b
     })
   }
 
@@ -373,9 +374,20 @@ var globalEnv = (function () {
 
 
 var eval = (function () {
-  var isSelfEvaluated = function(exp) {
-    var t = exp.type
-    return (t === "Number") || (t === "String") || (t === "Boolean")
+  var isNumber = function(exp) {
+    return exp.type === "Number"
+  }
+
+  var isString = function(exp) {
+    return exp.type === "String"
+  }
+
+  var isBoolean = function(exp) {
+    return exp.type === "Boolean"
+  }
+
+  var isVar = function(exp) {
+    return exp.type === "Symbol"
   }
 
   var isQuoted = function(exp) {
@@ -443,8 +455,7 @@ var eval = (function () {
   }
 
   var ifTrue = function(exp) {
-    // TODO fix this
-    return exp === true || exp === "#t"
+    return exp === true
   }
 
   var ifThen = function(exp) {
@@ -474,8 +485,7 @@ var eval = (function () {
   }
 
   var lambdaBody = function(exp) {
-    // TODO
-    return exp[2]
+    return exp.slice(2)
   }
 
   var makeProcedure = function(pars, body, env) {
@@ -512,11 +522,9 @@ var eval = (function () {
   }
 
   var evalSequence = function(body, env) {
-    console.log(env);
-    // TODO bug seems from env class
-    var last = body.pop()
-    body.map(function(x) { eval(x, env) })
-    return eval(last, env)
+    var lastIndex = body.length - 1
+    body.slice(0, lastIndex).map(function(x) { eval(x, env) })
+    return eval(body[lastIndex], env)
   }
 
   var isApplication = function(exp) {
@@ -545,9 +553,16 @@ var eval = (function () {
 
   // TODO cond let
   function eval(exp, env) {
-    if(isSelfEvaluated(exp)) {
+    if(isNumber(exp)) {
+      return +(exp.value)
+    } else if(isString(exp)) {
       return exp.value
-    } else if(exp.type === "Symbol") {
+    } else if(isBoolean(exp)) {
+      if(exp.value === "#t") {
+        return true
+      }
+      return false
+    } else if(isVar(exp)) {
       return env.find(exp.value)
     } else if(isQuoted(exp)) {
       return exp.value
@@ -592,9 +607,9 @@ var eval = (function () {
 })()
 
 
-// eval(parse(tokenize(StringBuffer('-4'))))
-// eval(parse(tokenize(StringBuffer('"abc  def"'))))
-// eval(parse(tokenize(StringBuffer('#f'))))
+// var a = eval(parse(tokenize(StringBuffer('-4'))))
+// var a = eval(parse(tokenize(StringBuffer('"abc  def"'))))
+// var b = eval(parse(tokenize(StringBuffer('#f'))))
 // eval(parse(tokenize(StringBuffer('\'abc'))))
 
 // TODO BUG
@@ -618,10 +633,14 @@ var eval = (function () {
 // var c = parse(tokenize(StringBuffer('(square2 4)')))
 // var d = parse(tokenize(StringBuffer('(* 10 4)')))
 // var e = parse(tokenize(StringBuffer('(+ 10 2 2)')))
+
 // var e = parse(tokenize(StringBuffer('(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))')))
 // eval(e)
-// var g = parse(tokenize(StringBuffer('(fib 4)')))
+// var g = parse(tokenize(StringBuffer('(fib 10)')))
 
 // var a = parse(tokenize(StringBuffer('(define (test n) (if (= n 1) n (test (- n 1))))')))
 // var b = parse(tokenize(StringBuffer('(test 1)')))
-// var c = parse(tokenize(StringBuffer('(define test2 (lambda (n) (if (= n 1) 1 (test2 (- n 1))))')))
+// var c = parse(tokenize(StringBuffer('(define test2 (lambda (n) (if (= n 1) 1 (test2 (- n 1)))))')))
+
+// eval(parse(tokenize(StringBuffer('(define (x n) (if (<= 3 2) (+ 1 2) (* 1 2)))'))))
+// var b = parse(tokenize(StringBuffer('(x 4)')))
