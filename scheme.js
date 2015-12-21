@@ -7,8 +7,26 @@
  **/
 
 // TODO make all this a module
+var symbols = {
+  Symbol: "Symbol",
+  Number: "Number",
+  String: "String",
+  Boolean: "Boolean",
+  Quote: "Quote",
+  Primitive: "Primitive",
+  Procedure: "Procedure",
+  whiteSpaces: {
+    " ": true,
+    "\n": true,
+    "\t": true
+  },
+  booleanSymbols: {
+    "t": true,
+    "f": true
+  }
+}
 
-// TODO make it a module
+
 var StringBuffer = (function () {
   function StringBuffer(str) {
     this.str = str
@@ -25,8 +43,7 @@ var StringBuffer = (function () {
 
   StringBuffer.prototype.skipWS = function() {
     var s = this.currentSymbol()
-    // TODO whiteSpaces    make it in global module
-    if(s === " " || s === "\n" || s === "\t") {
+    if(s in symbols.whiteSpaces) {
       this.read()
       return this.skipWS()
     }
@@ -54,18 +71,6 @@ function error(buf, msg) {
 
 
 var tokenize = (function () {
-  var richifyArray = function(array) {
-    array.contains = function(elem) {
-      return array.indexOf(elem) !== -1
-    }
-    return array
-  }
-
-  var whiteSpaces = [" ", "\n", "\t"]
-  var booleans = ["t", "f"]
-  richifyArray(whiteSpaces)
-  richifyArray(booleans)
-
   var tokenizeString = function(buf) {
     var res = ""
     while(buf.currentSymbol() !== '"') {
@@ -83,7 +88,7 @@ var tokenize = (function () {
   // '(a b c) not just whitespace
   var tokenizeQuote = function(buf) {
     var res = ""
-    while(!whiteSpaces.contains(buf.currentSymbol())) {
+    while(!(buf.currentSymbol() in symbols.whiteSpaces)) {
       if(buf.eof()) {
         return res
       }
@@ -96,14 +101,14 @@ var tokenize = (function () {
   var tokenizeBoolean = function(buf) {
     var res = ""
     var current = buf.currentSymbol()
-    if(!booleans.contains(current)) {
+    if(!(current in symbols.booleanSymbols)) {
       return error(buf, "Tokenize Boolean Error")
     }
     res += current
     buf.read()
     if(buf.eof()) {
       return res
-    } else if(!whiteSpaces.contains(buf.currentSymbol())) {
+    } else if(!(buf.currentSymbol() in symbols.whiteSpaces)) {
       return error(buf, "Tokenize Boolean Error")
     }
     return res
@@ -111,7 +116,7 @@ var tokenize = (function () {
 
   var tokenizeSymbol = function(buf) {
     var res = ""
-    while(!whiteSpaces.contains(buf.currentSymbol())) {
+    while(!(buf.currentSymbol() in symbols.whiteSpaces)) {
       if(buf.eof() || buf.currentSymbol() === ")") {
         return res
       }
@@ -140,7 +145,7 @@ var tokenize = (function () {
 
     while(!buf.eof()) {
       var currentSymbol = buf.currentSymbol()
-      if(whiteSpaces.contains(currentSymbol)) {
+      if(currentSymbol in symbols.whiteSpaces) {
         buf.skipWS()
       } else if(currentSymbol === '"') {
         buf.read()
@@ -240,22 +245,22 @@ var parse = (function () {
       return res
     } else if(current === '"') {
       token.next()
-      var res = res.concat(typeInfo("String", token.current()))
+      var res = res.concat(typeInfo(symbols.String, token.current()))
       token.next()
       token.next()
       return parse(token, res)
     } else if(isNumber(current)) {
-      var res = res.concat(typeInfo("Number", current))
+      var res = res.concat(typeInfo(symbols.Number, current))
       token.next()
       return parse(token, res)
     } else if(current === "quote") {
       token.next()
-      var res = res.concat(typeInfo("Quote", token.current()))
+      var res = res.concat(typeInfo(symbols.Quote, token.current()))
       token.next()
       return parse(token, res)
     } else if(current === "#") {
       token.next()
-      var res = res.concat(typeInfo("Boolean", "#" + token.current()))
+      var res = res.concat(typeInfo(symbols.Boolean, "#" + token.current()))
       token.next()
       return parse(token, res)
     } else if(current === "(") {
@@ -263,7 +268,7 @@ var parse = (function () {
       var temp = parse(subList, [])
       return parse(token.nextRelative(), res.concat([temp]))
     } else {
-      var res = res.concat(typeInfo("Symbol", token.current()))
+      var res = res.concat(typeInfo(symbols.Symbol, token.current()))
       token.next()
       return parse(token, res)
     }
@@ -322,7 +327,7 @@ var globalEnv = (function () {
 
   function makePrimitive(f) {
     return {
-      type: "Primitive",
+      type: symbols.Primitive,
       value: f
     }
   }
@@ -375,27 +380,27 @@ var globalEnv = (function () {
 
 var eval = (function () {
   var isNumber = function(exp) {
-    return exp.type === "Number"
+    return exp.type === symbols.Number
   }
 
   var isString = function(exp) {
-    return exp.type === "String"
+    return exp.type === symbols.String
   }
 
   var isBoolean = function(exp) {
-    return exp.type === "Boolean"
+    return exp.type === symbols.Boolean
   }
 
   var isVar = function(exp) {
-    return exp.type === "Symbol"
+    return exp.type === symbols.Symbol
   }
 
   var isQuoted = function(exp) {
-    return exp.type === "Quote"
+    return exp.type === symbols.Quote
   }
 
   var sGeneral = function(exp, key, length) {
-    return exp[0].type === "Symbol" && exp[0].value === key
+    return exp[0].type === symbols.Symbol && exp[0].value === key
       && exp.length === length
   }
 
@@ -435,7 +440,7 @@ var eval = (function () {
     var t = exp[1]
     if(isNormalDefine(exp)) {
       var params = [t.slice(1)]
-      params.unshift({type: "Symbol", value: "lambda"})
+      params.unshift({type: symbols.Symbol, value: "lambda"})
       params.push(exp[2])
       return params
     }
@@ -477,7 +482,7 @@ var eval = (function () {
   var isLambda = function(exp) {
     return exp.length === 3 && exp[0].value === "lambda"
       && Array.isArray(exp[1]) && Array.isArray(exp[2])
-      && exp[1].every(function(elem) { return elem.type === "Symbol" })
+      && exp[1].every(function(elem) { return elem.type === symbols.Symbol })
   }
 
   var lambdaVars = function(exp) {
@@ -490,7 +495,7 @@ var eval = (function () {
 
   var makeProcedure = function(pars, body, env) {
     return {
-      type: "Procedure",
+      type: symbols.Procedure,
       parameters: pars,
       body: body,
       env: env
@@ -498,7 +503,7 @@ var eval = (function () {
   }
 
   var isCompoundProcedure = function(exp) {
-    return exp.type === "Procedure"
+    return exp.type === symbols.Procedure
   }
 
   var compoundProcedurePars = function(exp) {
@@ -540,7 +545,7 @@ var eval = (function () {
   }
 
   var isPrimitive = function(exp) {
-    return exp.type === "Primitive"
+    return exp.type === symbols.Primitive
   }
 
   var primitiveValue = function(exp) {
@@ -608,9 +613,9 @@ var eval = (function () {
 
 
 // var a = eval(parse(tokenize(StringBuffer('-4'))))
-// var a = eval(parse(tokenize(StringBuffer('"abc  def"'))))
-// var b = eval(parse(tokenize(StringBuffer('#f'))))
-// eval(parse(tokenize(StringBuffer('\'abc'))))
+// var b = eval(parse(tokenize(StringBuffer('"abc  def"'))))
+// var c = eval(parse(tokenize(StringBuffer('#f'))))
+// var d = eval(parse(tokenize(StringBuffer('\'abc'))))
 
 // TODO BUG
 // var s = new StringBuffer("'(1 2 3)")
