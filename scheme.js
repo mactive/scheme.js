@@ -84,15 +84,46 @@ var tokenize = (function () {
     return res
   }
 
-  // TODO bug
-  // '(a b c) not just whitespace
   var tokenizeQuote = function(buf) {
-    var res = ""
+    var newListBuffer = function(buf, num) {
+      var res = ""
+      var parensNum = 0
+      while(parensNum !== num) {
+        if(buf.currentSymbol() === ")") {
+          parensNum++
+        }
+        res += buf.currentSymbol()
+        buf.read()
+      }
+      return StringBuffer(res)
+    }
+
+    var getParensNum = function(buf) {
+      var parensNum = 0
+      while(buf.currentSymbol() !== ")") {
+        if(buf.currentSymbol() === "(") {
+          parensNum++
+        }
+        buf.read()
+      }
+      return parensNum
+    }
+
+    if(buf.currentSymbol() === "(") {
+      var bufCopy = StringBuffer(buf.str)
+      var buffer = newListBuffer(buf, getParensNum(bufCopy))
+      var res = ["quote"]
+      res = res.concat(tokenize(buffer, []))
+      buf.read()
+      return res
+    }
+
+    var res = ["quote", ""]
     while(!(buf.currentSymbol() in symbols.whiteSpaces)) {
       if(buf.eof()) {
         return res
       }
-      res += buf.currentSymbol()
+      res[1] += buf.currentSymbol()
       buf.read()
     }
     return res
@@ -140,41 +171,43 @@ var tokenize = (function () {
     return leftParensNum === rightParensNum
   }
 
-  var tokenize = function(buf) {
-    var res = []
-
-    while(!buf.eof()) {
-      var currentSymbol = buf.currentSymbol()
-      if(currentSymbol in symbols.whiteSpaces) {
-        buf.skipWS()
-      } else if(currentSymbol === '"') {
-        buf.read()
-        res.push(currentSymbol)
-        res.push(tokenizeString(buf))
-        res.push(currentSymbol)
-      } else if(currentSymbol === "\'") {
-        buf.read()
-        res.push("quote")
-        res.push(tokenizeQuote(buf))
-      } else if(currentSymbol === "#") {
-        buf.read()
-        res.push(currentSymbol)
-        res.push(tokenizeBoolean(buf))
-      } else if(currentSymbol === "(" || currentSymbol === ")") {
-        buf.read()
-        res.push(currentSymbol)
-      } else {
-        res.push(tokenizeSymbol(buf))
+  var tokenize = function(buf, res) {
+    var currentSymbol = buf.currentSymbol()
+    if(buf.eof()) {
+      if(!parensCorrect(res)) {
+        return error(buf, "Tokenize List Error")
       }
+      return res
+    } else if(currentSymbol in symbols.whiteSpaces) {
+      buf.skipWS()
+      return tokenize(buf, res)
+    } else if(currentSymbol === '"') {
+      buf.read()
+      res.push(currentSymbol)
+      res.push(tokenizeString(buf))
+      res.push(currentSymbol)
+      return tokenize(buf, res)
+    } else if(currentSymbol === "\'") {
+      buf.read()
+      return tokenize(buf, res.concat(tokenizeQuote(buf)))
+    } else if(currentSymbol === "#") {
+      buf.read()
+      res.push(currentSymbol)
+      res.push(tokenizeBoolean(buf))
+      return tokenize(buf, res)
+    } else if(currentSymbol === "(" || currentSymbol === ")") {
+      buf.read()
+      res.push(currentSymbol)
+      return tokenize(buf, res)
+    } else {
+      res.push(tokenizeSymbol(buf))
+      return tokenize(buf, res)
     }
-
-    if(!parensCorrect(res)) {
-      return error(buf, "Tokenize List Error")
-    }
-    return res
   }
 
-  return tokenize
+  return function(buf) {
+    return tokenize(buf, [])
+  }
 })()
 
 
@@ -255,9 +288,15 @@ var parse = (function () {
       return parse(token, res)
     } else if(current === "quote") {
       token.next()
-      var res = res.concat(typeInfo(symbols.Quote, token.current()))
-      token.next()
-      return parse(token, res)
+      var current = token.current()
+      if(current !== "(") {
+        var res = res.concat(typeInfo(symbols.Quote, current))
+        token.next()
+        return parse(token, res)
+      }
+      var subList = token.relativeList()
+      var temp = parse(subList, [])
+      return parse(token.nextRelative(), res.concat(typeInfo(symbols.Quote, temp)))
     } else if(current === "#") {
       token.next()
       var res = res.concat(typeInfo(symbols.Boolean, "#" + token.current()))
@@ -276,10 +315,10 @@ var parse = (function () {
 
   return function(token) {
     var res = parse((new Listify(token)), [])
-    if(res.length !== 1) {
-      // TODO error
-      return -1
-    }
+    // if(res.length !== 1) {
+    //   // TODO error
+    //   return -1
+    // }
     return res[0]
   }
 })()
@@ -332,7 +371,6 @@ var globalEnv = (function () {
     }
   }
 
-  // TODO string to number
   function add() {
     return [].reduce.call(arguments, function(a, b) {
       return a + b
@@ -397,6 +435,33 @@ var eval = (function () {
 
   var isQuoted = function(exp) {
     return exp.type === symbols.Quote
+  }
+
+  var quoteValue = function(exp) {
+    var getArray = function(array, res) {
+      if(array.length === 0) {
+        return res
+      } else {
+        var car = array.shift()
+        if(Array.isArray(car)) {
+          return getArray(array, [getArray(car, res)])
+        } else {
+          return getArray(array, res.concat(car.value))
+        }
+      }
+    }
+
+    var arrayToList = function(array) {
+      var t = JSON.stringify(array).replace(/\[/g, "(").replace(/]/g, ")")
+      return t.replace(/,/g, " ").replace(/\"/g, "")
+    }
+
+    var val = exp.value
+
+    if(Array.isArray(val)) {
+      return arrayToList(getArray(val, []))
+    }
+    return val
   }
 
   var sGeneral = function(exp, key, length) {
@@ -570,7 +635,7 @@ var eval = (function () {
     } else if(isVar(exp)) {
       return env.find(exp.value)
     } else if(isQuoted(exp)) {
-      return exp.value
+      return quoteValue(exp)
     } else if(isAssignment(exp)) {
       return evalAssignment(exp, env)
     } else if(isDefinition(exp)) {
@@ -617,9 +682,6 @@ var eval = (function () {
 // var c = eval(parse(tokenize(StringBuffer('#f'))))
 // var d = eval(parse(tokenize(StringBuffer('\'abc'))))
 
-// TODO BUG
-// var s = new StringBuffer("'(1 2 3)")
-
 // eval(parse(tokenize(StringBuffer('(set! x 10)'))))
 // eval(parse(tokenize(StringBuffer('x'))))
 
@@ -649,3 +711,12 @@ var eval = (function () {
 
 // eval(parse(tokenize(StringBuffer('(define (x n) (if (<= 3 2) (+ 1 2) (* 1 2)))'))))
 // var b = parse(tokenize(StringBuffer('(x 4)')))
+
+// var s1 = StringBuffer('\'(1 2 3) 1 2 3 \'ab \'d "abc" 4')
+// var b1 = eval(parse(tokenize(s1)))
+
+// var s2 = StringBuffer('\'abcd')
+// var b2 = eval(parse(tokenize(s2)))
+
+// var s3 = StringBuffer('\'(((a b c d)))')
+// var b3 = eval(parse(tokenize(s3)))
