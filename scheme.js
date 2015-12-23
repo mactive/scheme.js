@@ -112,16 +112,16 @@ var tokenize = (function () {
 
     if(buf.currentSymbol() === "(") {
       var bufCopy = StringBuffer(buf.str)
+      bufCopy.position = buf.position
       var buffer = newListBuffer(buf, getParensNum(bufCopy))
       var res = ["quote"]
       res = res.concat(tokenize(buffer, []))
-      buf.read()
       return res
     }
 
     var res = ["quote", ""]
     while(!(buf.currentSymbol() in symbols.whiteSpaces)) {
-      if(buf.eof()) {
+      if(buf.eof() || buf.currentSymbol() === ")") {
         return res
       }
       res[1] += buf.currentSymbol()
@@ -170,9 +170,6 @@ var tokenize = (function () {
   var tokenize = function(buf, res) {
     var currentSymbol = buf.currentSymbol()
     if(buf.eof()) {
-      if(!parensCorrect(res)) {
-        return error(buf, "Tokenize List Error")
-      }
       return res
     } else if(currentSymbol in symbols.whiteSpaces) {
       buf.skipWS()
@@ -202,7 +199,11 @@ var tokenize = (function () {
   }
 
   return function(buf) {
-    return tokenize(buf, [])
+    var res = tokenize(buf, [])
+    if(!parensCorrect(res)) {
+      return error(buf, "Tokenize List Error")
+    }
+    return res
   }
 })()
 
@@ -448,12 +449,6 @@ var eval = (function () {
           return getArray(array, res.concat(car.value))
         }
       }
-    }
-
-    // TODO useless?
-    var arrayToList = function(array) {
-      var t = JSON.stringify(array).replace(/\[/g, "(").replace(/]/g, ")")
-      return t.replace(/,/g, " ").replace(/\"/g, "")
     }
 
     var val = exp.value
@@ -717,8 +712,8 @@ function isNull(l) {
 //   return eval(parse(tokenize(StringBuffer(x))))
 // }
 
-// eval1('(define (map f l) (if (null? l) (list) (cons (f (car l)) (map f (cdr l)))))')
-// eval1('(define (filter p l) (if (null? l) (list) (if (eq? (p (car l)) #t) (cons (car l) (filter p (cdr l))) (filter p (cdr l)))))')
+// eval1("(define (map f l) (if (null? l) '() (cons (f (car l)) (map f (cdr l)))))")
+// eval1("(define (filter p l) (if (null? l) '() (if (eq? (p (car l)) #t) (cons (car l) (filter p (cdr l))) (filter p (cdr l)))))")
 
-// eval1('(map (lambda (x) (* x x)) (list 1 2 3))')
-// eval1('(filter (lambda (n) (= 0 n)) (list 0 1 2 3 0))')
+// eval1("(map (lambda (x) (* x x)) '(1 2 3))")
+// eval1("(filter (lambda (n) (= 0 n)) '(0 1 2 0 3 0))")
