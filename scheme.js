@@ -23,7 +23,8 @@ var symbols = {
   booleanSymbols: {
     "t": true,
     "f": true
-  }
+  },
+  emptyList: "'()"
 }
 
 
@@ -137,11 +138,6 @@ var tokenize = (function () {
     }
     res += current
     buf.read()
-    if(buf.eof()) {
-      return res
-    } else if(!(buf.currentSymbol() in symbols.whiteSpaces)) {
-      return error(buf, "Tokenize Boolean Error")
-    }
     return res
   }
 
@@ -315,10 +311,10 @@ var parse = (function () {
 
   return function(token) {
     var res = parse((new Listify(token)), [])
-    // if(res.length !== 1) {
-    //   // TODO error
-    //   return -1
-    // }
+    if(res.length !== 1) {
+      // TODO error
+      return -1
+    }
     return res[0]
   }
 })()
@@ -405,12 +401,12 @@ var globalEnv = (function () {
   globalEnv.add(">", makePrimitive(function(a, b) { return a > b }))
   globalEnv.add(">=", makePrimitive(function(a, b) { return a >= b }))
   globalEnv.add("=", makePrimitive(function(a, b) { return a === b }))
-  // #t
-  // #f
-  // car
-  // cdr
-  // cons
-  // null?
+  globalEnv.add("eq?", makePrimitive(function(a, b) { return a === b }))
+  globalEnv.add("cons", makePrimitive(cons))
+  globalEnv.add("car", makePrimitive(car))
+  globalEnv.add("cdr", makePrimitive(cdr))
+  globalEnv.add("list", makePrimitive(list))
+  globalEnv.add("null?", makePrimitive(isNull))
 
   return globalEnv
 })()
@@ -446,11 +442,15 @@ var eval = (function () {
         if(Array.isArray(car)) {
           return getArray(array, [getArray(car, res)])
         } else {
+          if(car.type === symbols.Number) {
+            return getArray(array, res.concat(+(car.value)))
+          }
           return getArray(array, res.concat(car.value))
         }
       }
     }
 
+    // TODO useless?
     var arrayToList = function(array) {
       var t = JSON.stringify(array).replace(/\[/g, "(").replace(/]/g, ")")
       return t.replace(/,/g, " ").replace(/\"/g, "")
@@ -459,7 +459,7 @@ var eval = (function () {
     var val = exp.value
 
     if(Array.isArray(val)) {
-      return arrayToList(getArray(val, []))
+      return list.apply(undefined, getArray(val, []))
     }
     return val
   }
@@ -598,7 +598,7 @@ var eval = (function () {
   }
 
   var isApplication = function(exp) {
-    return exp.length >= 2
+    return exp.length >= 1
   }
 
   var applicationApp = function(exp) {
@@ -661,12 +661,14 @@ var eval = (function () {
     } else if(isCompoundProcedure(procedure)) {
       var pars = compoundProcedurePars(procedure)
       if(pars.length !== vals.length) {
+        // TODO error
         return -11111111111
       }
       var body = compoundProcedureBody(procedure)
       var newEnv = compoundProcedureEnv(procedure).extends(pars, vals)
       return evalSequence(body, newEnv)
     } else {
+      // TODO error
       return -11111
     }
   }
@@ -677,46 +679,46 @@ var eval = (function () {
 })()
 
 
-// var a = eval(parse(tokenize(StringBuffer('-4'))))
-// var b = eval(parse(tokenize(StringBuffer('"abc  def"'))))
-// var c = eval(parse(tokenize(StringBuffer('#f'))))
-// var d = eval(parse(tokenize(StringBuffer('\'abc'))))
+function Cell(x, y) {
+  this.x = x
+  this.y = y
+}
 
-// eval(parse(tokenize(StringBuffer('(set! x 10)'))))
-// eval(parse(tokenize(StringBuffer('x'))))
+Cell.prototype.toString = function() {
+  y = this.y === null ? symbols.emptyList : this.y
+  return "(" + this.x + " . " + y + ")"
+}
 
-// eval(parse(tokenize(StringBuffer('(define x 1)'))))
-// eval(parse(tokenize(StringBuffer('(define square (lambda (x) (* x x)))'))))
-// eval(parse(tokenize(StringBuffer('(define (square2 x) (* x x))'))))
-// eval(parse(tokenize(StringBuffer('(define x (lambda (x) (* x x)))'))))
-// var a = parse(tokenize(StringBuffer('(if #t 1 2)')))
-// var b = parse(tokenize(StringBuffer('(if (<= 1 2) (+ 1 2) (* 1 2))')))
+function cons(x, y) {
+  return new Cell(x, y)
+}
 
-// parse(tokenize(StringBuffer('(lambda (x) (* x x))')))
-// eval(parse(tokenize(StringBuffer('(begin (set! y 1) 1 2 (+ 1 2 3) "abc" (* 1 2))'))))
+function car(z) {
+  return z.x
+}
 
-// var a = parse(tokenize(StringBuffer('((lambda (x) (* x x)) 4)')))
-// var b = eval(parse(tokenize(StringBuffer('(square 4)'))))
-// var c = parse(tokenize(StringBuffer('(square2 4)')))
-// var d = parse(tokenize(StringBuffer('(* 10 4)')))
-// var e = parse(tokenize(StringBuffer('(+ 10 2 2)')))
+function cdr(z) {
+  return z.y
+}
 
-// var e = parse(tokenize(StringBuffer('(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))')))
-// eval(e)
-// var g = parse(tokenize(StringBuffer('(fib 10)')))
+function list() {
+  var t = [].slice.call(arguments).concat(null)
+  return t.reduceRight(function(res, current) {
+    return cons(current, res)
+  })
+}
 
-// var a = parse(tokenize(StringBuffer('(define (test n) (if (= n 1) n (test (- n 1))))')))
-// var b = parse(tokenize(StringBuffer('(test 1)')))
-// var c = parse(tokenize(StringBuffer('(define test2 (lambda (n) (if (= n 1) 1 (test2 (- n 1)))))')))
+function isNull(l) {
+  return l === null
+}
 
-// eval(parse(tokenize(StringBuffer('(define (x n) (if (<= 3 2) (+ 1 2) (* 1 2)))'))))
-// var b = parse(tokenize(StringBuffer('(x 4)')))
 
-// var s1 = StringBuffer('\'(1 2 3) 1 2 3 \'ab \'d "abc" 4')
-// var b1 = eval(parse(tokenize(s1)))
+// var eval1 = function(x) {
+//   return eval(parse(tokenize(StringBuffer(x))))
+// }
 
-// var s2 = StringBuffer('\'abcd')
-// var b2 = eval(parse(tokenize(s2)))
+// eval1('(define (map f l) (if (null? l) (list) (cons (f (car l)) (map f (cdr l)))))')
+// eval1('(define (filter p l) (if (null? l) (list) (if (eq? (p (car l)) #t) (cons (car l) (filter p (cdr l))) (filter p (cdr l)))))')
 
-// var s3 = StringBuffer('\'(((a b c d)))')
-// var b3 = eval(parse(tokenize(s3)))
+// eval1('(map (lambda (x) (* x x)) (list 1 2 3))')
+// eval1('(filter (lambda (n) (= 0 n)) (list 0 1 2 3 0))')
