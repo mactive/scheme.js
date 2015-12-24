@@ -758,9 +758,6 @@ var eval = (function () {
   eval1("(define (map f l) (if (null? l) '() (cons (f (car l)) (map f (cdr l)))))")
   eval1("(define (filter p l) (if (null? l) '() (if (eq? (p (car l)) #t) (cons (car l) (filter p (cdr l))) (filter p (cdr l)))))")
 
-  eval1("(map (lambda (x) (* x x)) '(1 2 3))")
-  eval1("(filter (lambda (n) (= 0 n)) '(0 1 2 0 3 0))")
-
   return function(exp) {
     return eval1(exp)
   }
